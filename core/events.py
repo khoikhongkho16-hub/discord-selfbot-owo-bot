@@ -25,6 +25,11 @@ class EventHandler:
         self._user_confirmed_exit = False
         self._loop = None
         self._solving_lock = False
+        self._last_event_time = 0
+        self._event_cooldown = 1.0
+        self._last_message_id = None
+        self._current_user_id = None
+        self._settings_displayed = False
 
     def connect(self):
         try:
@@ -35,64 +40,141 @@ class EventHandler:
 
         @self.bot.discord_bot.gateway.command
         def on_ready(resp):
-            if resp.event.ready_supplemental:
+            # SỬA: ready_supplemental -> ready
+            if resp.event.ready and not self.is_ready:
+                self.is_ready = True
+                self.bot._is_ready = True
                 self._on_ready(resp)
 
         @self.bot.discord_bot.gateway.command
         def security(resp):
             self._security(resp)
 
-    def _on_ready(self, resp):
-        if self.is_ready:
-            return
-
+    def display_settings(self):
+        """Hiển thị thông tin cơ bản của tài khoản"""
         try:
-            channel_info = self.bot.discord_bot.getChannel(self.bot.config.channel).json()
-            if isinstance(channel_info, dict):
-                self.bot.config.guildID = channel_info.get('guild_id')
-            else:
+            if self._settings_displayed:
+                return
+            
+            # Lấy thông tin user từ session
+            session_user = getattr(self.bot.discord_bot.gateway.session, "user", {})
+            
+            if not isinstance(session_user, dict) or not session_user:
+                print(f"{color.warning}[WARNING]{color.reset} Cannot retrieve user information")
+                return
+            
+            # Hiển thị thông tin cơ bản
+            username = session_user.get('username', 'Unknown')
+            discriminator = session_user.get('discriminator', '0000')
+            user_id = session_user.get('id', 'Unknown')
+            
+            print(f"\n{color.okgreen}╔═══════════════════════════════════════════════════════════╗{color.reset}")
+            print(f"{color.okgreen}║{color.reset}              {color.bold}ACCOUNT INFORMATION{color.reset}                  {color.okgreen}║{color.reset}")
+            print(f"{color.okgreen}╠═══════════════════════════════════════════════════════════╣{color.reset}")
+            print(f"{color.okgreen}║{color.reset}  {color.okcyan}Username:{color.reset} {username}#{discriminator}")
+            print(f"{color.okgreen}║{color.reset}  {color.okcyan}User ID:{color.reset}   {user_id}")
+            
+            # Hiển thị channel info
+            try:
+                channel_info = self.bot.discord_bot.getChannel(self.bot.config.channel)
+                if channel_info:
+                    channel_json = channel_info.json()
+                    if isinstance(channel_json, dict):
+                        channel_name = channel_json.get('name', 'Unknown')
+                        guild_id = channel_json.get('guild_id', 'Unknown')
+                        print(f"{color.okgreen}║{color.reset}  {color.okcyan}Channel:{color.reset}  #{channel_name}")
+                        print(f"{color.okgreen}║{color.reset}  {color.okcyan}Guild ID:{color.reset} {guild_id}")
+            except:
+                pass
+            
+            # Hiển thị bot version
+            print(f"{color.okgreen}║{color.reset}  {color.okcyan}Bot Version:{color.reset} 3.7.0")
+            
+            # Hiển thị các module đã đăng ký
+            modules = []
+            if hasattr(self.bot, 'gems') and self.bot.gems:
+                modules.append("Gems")
+            if hasattr(self.bot, 'weapons') and self.bot.weapons:
+                modules.append("Weapons")
+            modules.extend(["Pray", "Exp", "Daily", "Sell"])
+            
+            if modules:
+                print(f"{color.okgreen}║{color.reset}  {color.okcyan}Modules:{color.reset}    {', '.join(modules)}")
+            
+            print(f"{color.okgreen}╚═══════════════════════════════════════════════════════════╝{color.reset}\n")
+            
+            self._settings_displayed = True
+            
+        except Exception as e:
+            print(f"{color.warning}[WARNING]{color.reset} Failed to display settings: {e}")
+
+    def show_info(self):
+        """Fallback: Hiển thị thông tin nếu display_settings không hoạt động"""
+        try:
+            session_user = getattr(self.bot.discord_bot.gateway.session, "user", {})
+            if isinstance(session_user, dict) and session_user:
+                username = session_user.get('username', 'Unknown')
+                discriminator = session_user.get('discriminator', '0000')
+                user_id = session_user.get('id', 'Unknown')
+                
+                print(f"\n{color.okgreen}=== ACCOUNT INFORMATION ==={color.reset}")
+                print(f"{color.okcyan}Username:{color.reset} {username}#{discriminator}")
+                print(f"{color.okcyan}User ID:{color.reset} {user_id}")
+                print(f"{color.okcyan}Channel:{color.reset} {self.bot.config.channel}")
+                print(f"{color.okcyan}Bot Version:{color.reset} 3.7.0")
+                
+                # Hiển thị modules
+                modules = []
+                if hasattr(self.bot, 'gems') and self.bot.gems:
+                    modules.append("Gems")
+                if hasattr(self.bot, 'weapons') and self.bot.weapons:
+                    modules.append("Weapons")
+                modules.extend(["Pray", "Exp", "Daily", "Sell"])
+                if modules:
+                    print(f"{color.okcyan}Modules:{color.reset} {', '.join(modules)}")
+                print()
+        except:
+            pass
+
+    def _on_ready(self, resp):
+        """Xử lý khi bot ready"""
+        try:
+            # Lấy channel info
+            try:
+                channel_info = self.bot.discord_bot.getChannel(self.bot.config.channel)
+                if channel_info:
+                    channel_info = channel_info.json()
+                    if isinstance(channel_info, dict):
+                        self.bot.config.guildID = channel_info.get('guild_id')
+                    else:
+                        self.bot.config.guildID = None
+            except:
                 self.bot.config.guildID = None
 
-            self.bot.config.dmsID = None
-            dm_ids = getattr(self.bot.discord_bot.gateway.session, "DMIDs", [])
-            dms = getattr(self.bot.discord_bot.gateway.session, "DMs", {})
-            for dm_id in dm_ids:
-                dm_data = dms.get(dm_id, {})
-                recipients = dm_data.get('recipients', {})
-                if self.bot.config.OwOID in recipients:
-                    self.bot.config.dmsID = dm_id
-                    break
-
-            user = getattr(self.bot.discord_bot.gateway.session, "user", {})
-            if not isinstance(user, dict):
-                user = {}
-            username = user.get('username', 'Unknown')
-            discriminator = user.get('discriminator', '0000')
-
-            self.ui.slowPrinting(f"Logged in as {username}#{discriminator}")
-            self.ui.slowPrinting('══════════════════════════════════════')
-            self.ui.slowPrinting(f"{color.purple}Settings: ")
-            self.ui.slowPrinting(f"Channel: {self.bot.config.channel}")
-            self.ui.slowPrinting(f"Gems Mode: {self.bot.config.gm}")
-            self.ui.slowPrinting(f"Weapon Mode: {self.bot.config.wm}")
-            self.ui.slowPrinting(f"Sleep Mode: {self.bot.config.sm}")
-            self.ui.slowPrinting(f"Pray Mode: {self.bot.config.pm}")
-            self.ui.slowPrinting(f"EXP Mode: {self.bot.config.em.get('text', 'NO')}")
-            self.ui.slowPrinting(f"+)Send \"OwO\": {self.bot.config.em.get('owo', 'NO')}")
-            self.ui.slowPrinting(f"Webhook: {'YES' if self.bot.config.webhook.get('link') else 'NO'}")
-            self.ui.slowPrinting(f"Daily Mode: {self.bot.config.daily}")
-            self.ui.slowPrinting(f"{'Stop After (Seconds)' if self.bot.config.stop and self.bot.config.stop.isdigit() else 'Stop Mode'}: {self.bot.config.stop}")
-            self.ui.slowPrinting(f"Sell Mode: {self.bot.config.sell.get('enable', 'NO')}")
-            self.ui.slowPrinting('══════════════════════════════════════')
-
-            self.is_ready = True
+            # Lấy DM info
+            try:
+                self.bot.config.dmsID = None
+                dm_ids = getattr(self.bot.discord_bot.gateway.session, "DMIDs", [])
+                dms = getattr(self.bot.discord_bot.gateway.session, "DMs", {})
+                for dm_id in dm_ids:
+                    dm_data = dms.get(dm_id, {})
+                    recipients = dm_data.get('recipients', {})
+                    if self.bot.config.OwOID in recipients:
+                        self.bot.config.dmsID = dm_id
+                        break
+            except:
+                pass
+            
+            # Hiển thị thông tin tài khoản sau khi ready
+            self.display_settings()
+            
+            # Thông báo bot đã sẵn sàng
+            print(f"{color.okgreen}[SUCCESS]{color.reset} Bot is ready and running!")
+            print(f"{color.okcyan}[INFO]{color.reset} Started at: {time.strftime('%H:%M:%S')}")
+            print(f"{color.okcyan}[INFO]{color.reset} Type Ctrl+C to stop the bot\n")
 
         except Exception as e:
-            self.ui.slowPrinting(
-                f"{self.bot.at()}{color.fail}[ERROR]{color.reset} "
-                f"Ready error: {str(e)[:50]}"
-            )
-            time.sleep(60)
+            print(f"{color.warning}[WARNING]{color.reset} Error in _on_ready: {e}")
 
     def _security(self, resp):
         try:
@@ -103,10 +185,20 @@ class EventHandler:
             if not isinstance(m, dict):
                 return
 
+            # Deduplicate the same gateway message, never discard a different
+            # security warning merely because it arrived within one second.
+            message_id = m.get('id')
+            if message_id and message_id == self._last_message_id:
+                return
+            self._last_message_id = message_id
+
             result = self._issue_checker(m)
             if result == "captcha" and not self.captcha_detected and not self._solving_lock:
                 self.captcha_detected = True
+                # Kill outgoing work before alerts, resolver checks or I/O.
+                self.bot.emergency_pause()
                 self._handle_captcha()
+                return
 
             if self.bot.gems and self.bot.config.gm == "YES":
                 content = m.get('content', '')
@@ -120,104 +212,84 @@ class EventHandler:
                     if 'already have an active' in content.lower() or 'you do not own this gem' in content.lower():
                         self.bot.gems.handle_use_response(content)
 
-        except Exception as e:
+        except:
             pass
 
     def _handle_captcha(self):
         try:
             if self._solving_lock:
-                self.bot.log("INFO", "Captcha solve already in progress...")
                 return
 
-            if not self.bot.has_captcha_resolver():
-                self.bot.log("WARN", "No captcha resolver available")
-                self._pause_bot_no_resolver()
-                return
-
-            self.bot.log("DETECTED", "=" * 50)
-            self.bot.log("DETECTED", "CAPTCHA DETECTED!")
-            self.bot.log("DETECTED", "=" * 50)
-
+            # Idempotent: the event handler normally paused it already, but
+            # keep this safe when called directly.
+            self.bot.emergency_pause(wait_for_scheduler=True)
+            self._solving_lock = True
             self._trigger_alert()
 
-            self.bot.log("INFO", "Stopping bot...")
-
-            if self.bot.scheduler:
-                try:
-                    self.bot.scheduler.stop()
-                except:
-                    pass
+            if not self.bot.has_captcha_resolver():
+                self._pause_bot_no_resolver()
+                return
 
             try:
                 self.bot.discord_bot.gateway.close()
             except:
                 pass
 
-            self.bot.config.stopped = True
-            self.bot.running = False
-
-            self.bot.log("INFO", "Bot stopped. Starting resolver...")
-
             self._run_resolver_in_place()
 
-            self.bot.log("INFO", "Exiting main process...")
-            time.sleep(0.5)
-            os._exit(0)
-
         except Exception as e:
-            self.bot.log("ERROR", f"Handle captcha error: {e}")
+            self._solving_lock = False
             self._pause_bot_no_resolver()
 
     def _trigger_alert(self):
         try:
-            import os
-
             if os.name == "nt":
-                user32 = ctypes.windll.user32
-                kernel32 = ctypes.windll.kernel32
+                try:
+                    user32 = ctypes.windll.user32
+                    kernel32 = ctypes.windll.kernel32
 
-                hwnd = kernel32.GetConsoleWindow()
-                if hwnd:
-                    user32.FlashWindow(hwnd, True)
+                    hwnd = kernel32.GetConsoleWindow()
+                    if hwnd:
+                        user32.FlashWindow(hwnd, True)
 
-                    screen_width = user32.GetSystemMetrics(0)
-                    screen_height = user32.GetSystemMetrics(1)
+                        screen_width = user32.GetSystemMetrics(0)
+                        screen_height = user32.GetSystemMetrics(1)
 
-                    rect = ctypes.wintypes.RECT()
-                    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                        rect = ctypes.wintypes.RECT()
+                        user32.GetWindowRect(hwnd, ctypes.byref(rect))
 
-                    win_width = rect.right - rect.left
-                    win_height = rect.bottom - rect.top
+                        win_width = rect.right - rect.left
+                        win_height = rect.bottom - rect.top
 
-                    x = int((screen_width - win_width) / 2)
-                    y = int((screen_height - win_height) / 2)
+                        x = int((screen_width - win_width) / 2)
+                        y = int((screen_height - win_height) / 2)
 
-                    user32.MoveWindow(hwnd, x, y, win_width, win_height, True)
-                    user32.SetForegroundWindow(hwnd)
+                        user32.MoveWindow(hwnd, x, y, win_width, win_height, True)
+                        user32.SetForegroundWindow(hwnd)
+                except:
+                    pass
 
             print('\a')
             print('\a')
 
-        except Exception as e:
+        except:
             pass
 
     def _run_resolver_in_place(self):
         try:
-            resolver_script = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                'captcha_resolver',
-                'resolver_runner.py'
-            )
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            resolver_script = os.path.join(base_dir, 'captcha_resolver', 'resolver_runner.py')
 
             if not os.path.exists(resolver_script):
                 self._create_resolver_runner(resolver_script)
 
-            self.bot.log("INFO", f"Starting resolver...")
+            user_id = self._current_user_id or "Unknown"
+            os.environ['CAPTCHA_USER_ID'] = str(user_id)
 
             os.execv(sys.executable, [sys.executable, resolver_script])
 
         except Exception as e:
-            self.bot.log("ERROR", f"Failed to start resolver: {e}")
+            self._pause_bot_no_resolver()
 
     def _create_resolver_runner(self, path):
         content = '''#!/usr/bin/env python3
@@ -235,80 +307,71 @@ if __name__ == "__main__":
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(content)
-        except Exception as e:
+        except:
             pass
 
     def _pause_bot_no_resolver(self):
         try:
-            self.bot.config.stopped = True
-            self.bot.running = False
+            self.bot.emergency_pause()
 
-            if self.bot.scheduler:
-                try:
-                    self.bot.scheduler.stop()
-                except:
-                    pass
-
-            self.bot.log("INFO", "Bot paused due to captcha. Please restart tool to continue.")
-            self.bot.log("INFO", "If you want to auto-solve captcha, configure API key in config.")
-
-            self.ui.slowPrinting(
-                f'{self.bot.at()}{color.warning} '
-                '!! [CAPTCHA DETECTED] !! Bot Paused'
-            )
-            self.ui.slowPrinting(
-                f'{color.okcyan}[INFO]{color.reset} '
-                'Captcha detected but no resolver configured.'
-            )
-            self.ui.slowPrinting(
-                f'{color.okcyan}[INFO]{color.reset} '
-                'Bot is paused. Press Ctrl+C to exit.'
-            )
+            print(f'{self.bot.at()}{color.warning} !! [CAPTCHA DETECTED] !! Bot Paused')
+            print(f'{color.okcyan}[INFO]{color.reset} Captcha detected but no resolver configured.')
+            print(f'{color.okcyan}[INFO]{color.reset} Bot is paused. Press Ctrl+C to exit.')
 
         except Exception as e:
-            self.bot.log("ERROR", f"Pause bot failed: {e}")
+            pass
 
     def _issue_checker(self, m):
         try:
-            channel_id = m.get('channel_id')
             content = m.get('content', '')
-
             author = m.get('author', {})
             author_id = author.get('id')
-            author_name = author.get('username')
-            author_disc = author.get('discriminator')
-
-            session_user = getattr(self.bot.discord_bot.gateway.session, "user", {})
-            if not isinstance(session_user, dict):
-                session_user = {}
-
+            
             if self.captcha_detected or self.bot.config.stopped:
                 return None
-
-            if ((channel_id == self.bot.config.channel or
-                 channel_id == self.bot.config.dmsID) and
-                not self.bot.config.stopped):
-
-                is_owo = (
-                    author_id == self.bot.config.OwOID or
-                    author_name == 'OwO' or
-                    author_disc == '8456'
-                )
-
-                my_id = session_user.get('id') if isinstance(session_user, dict) else None
-
-                mentioned_me = (
-                    f"<@{my_id}>" in content or
-                    f"<@!{my_id}>" in content
-                ) if my_id and isinstance(content, str) else False
-
-                if is_owo and mentioned_me and not self.bot.config.stopped:
-                    lowered = content.lower()
-                    if any(k in lowered for k in self.captcha_keywords):
-                        return "captcha"
+            
+            if author_id != self.bot.config.OwOID:
+                return None
+            
+            import re
+            
+            session_user = getattr(self.bot.discord_bot.gateway.session, "user", {})
+            my_id = session_user.get('id') if isinstance(session_user, dict) else None
+            
+            if not my_id:
+                return None
+            
+            self._current_user_id = my_id
+            
+            mention_pattern = r'<@!?(\d+)>'
+            mentions = re.findall(mention_pattern, content)
+            
+            is_mentioned = str(my_id) in mentions
+            
+            if not is_mentioned:
+                return None
+            
+            clean = content
+            for zwc in ['\u200b', '\u200c', '\u200d', '\ufeff']:
+                clean = clean.replace(zwc, '')
+            clean = clean.lower()
+            
+            security_phrases = (
+                "captcha",
+                "are you a real human",
+                "verify that you are human",
+                "please complete",
+                "macros or botting",
+                "you have been banned",
+            )
+            if any(phrase in clean for phrase in security_phrases):
+                channel_id = m.get('channel_id')
+                if str(channel_id) == str(self.bot.config.channel):
+                    return "captcha"
+            
             return None
-
-        except Exception as e:
+            
+        except:
             return None
 
     def disconnect(self):

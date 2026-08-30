@@ -1,8 +1,7 @@
 import sys
 import time
-import random
 import ctypes
-import asyncio  # THÊM IMPORT
+import asyncio
 from os import name, system
 from signal import signal, SIGINT
 
@@ -12,7 +11,6 @@ from core.scheduler import Scheduler
 from core.events import EventHandler
 
 from data.config import Config
-from utils.colors import color
 from utils.helpers import UI, print_info, print_error, print_warning
 
 from modules import (
@@ -27,8 +25,13 @@ from modules import (
 ui = UI()
 config = None
 bot_instance = None
+_shutting_down = False
 
 def signal_handler(sig, frame):
+    global _shutting_down
+    if _shutting_down:
+        return
+    _shutting_down = True
     print()
     print_warning("Detected Ctrl+C, stopping bot...")
     if bot_instance:

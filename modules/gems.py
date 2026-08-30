@@ -9,8 +9,10 @@ class GemModule:
         self.bot = bot
         self.start_time = start_time
         
-        self.inv_cooldown = 333
-        self.use_cooldown = 10
+        # === FIX: Tăng cooldown ===
+        self.inv_cooldown = 300  # từ 180 lên 300
+        self.use_cooldown = 60   # từ 30 lên 60
+        self.item_check_cooldown = 180  # từ 120 lên 180
         self.last_inv_check = 0
         self.last_use_time = 0
         
@@ -42,8 +44,9 @@ class GemModule:
             bot.scheduler.register_task(
                 name="gem",
                 func=self.gem_cycle,
-                min_interval=15,
-                max_interval=15,
+                # === FIX: Tăng interval ===
+                min_interval=30,  # từ 15 lên 30
+                max_interval=30,
                 priority=6
             )
             if not self.initialized:
@@ -55,6 +58,9 @@ class GemModule:
             return
 
         try:
+            # === FIX: Thêm sleep nhỏ trước khi làm gì ===
+            sleep(random.uniform(0.5, 1.0))
+            
             hunt_msg = self._get_hunt_message()
             
             is_empowered = False

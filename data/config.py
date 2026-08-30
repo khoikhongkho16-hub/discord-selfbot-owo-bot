@@ -22,26 +22,6 @@ class Config:
         self.totaltext = 0
         self.stopped = False
         
-        # === THÊM CẤU HÌNH CPU ===
-        self.cpu = self.get('cpu', {})
-        self._ensure_cpu_config()
-
-    def _ensure_cpu_config(self):
-        """Đảm bảo có cấu hình CPU trong data"""
-        if 'cpu' not in self.data:
-            self.data['cpu'] = {
-                'max_percent': 90.0,
-                'check_interval': 1.0,
-                'max_wait_time': 300.0
-            }
-            self._save()
-        elif not isinstance(self.data['cpu'], dict):
-            self.data['cpu'] = {
-                'max_percent': 90.0,
-                'check_interval': 1.0,
-                'max_wait_time': 300.0
-            }
-            self._save()
 
     def _load(self):
         if not os.path.exists(self.config_file):
@@ -69,11 +49,6 @@ class Config:
                 "service": "yescaptcha",
                 "enable_image": True,
                 "model_path": "best.onnx"
-            },
-            "cpu": {
-                "max_percent": 90.0,
-                "check_interval": 1.0,
-                "max_wait_time": 300.0
             }
         }
         self.data = default
@@ -117,15 +92,6 @@ class Config:
             if value is not None:
                 result[key] = value
         return result
-
-    def get_cpu_config(self):
-        """Lấy cấu hình CPU"""
-        self._ensure_cpu_config()
-        return self.data.get('cpu', {
-            'max_percent': 90.0,
-            'check_interval': 1.0,
-            'max_wait_time': 300.0
-        })
 
     def check(self):
         from utils.helpers import slow_print

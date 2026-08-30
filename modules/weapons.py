@@ -9,9 +9,10 @@ class WeaponModule:
         self.bot = bot
         self.start_time = start_time
         self.last_buy_time = 0
-        self.buy_cooldown_min = 11
-        self.buy_cooldown_max = 33
-        self.skip_probability = 0.05
+        # === FIX: Tăng cooldown ===
+        self.buy_cooldown_min = 60   # từ 30 lên 60
+        self.buy_cooldown_max = 120  # từ 90 lên 120
+        self.skip_probability = 0.3   # từ 0.15 lên 0.3
         self.failed_attempts = 0
         self.max_retries = random.randint(3, 6)
         self.has_enough_shards = True
@@ -36,8 +37,9 @@ class WeaponModule:
             bot.scheduler.register_task(
                 name="weapon",
                 func=self.buy_one_crate,
-                min_interval=11,
-                max_interval=33,
+                # === FIX: Tăng interval ===
+                min_interval=30,  # từ 11 lên 30
+                max_interval=45,  # từ 33 lên 45
                 priority=2
             )
     

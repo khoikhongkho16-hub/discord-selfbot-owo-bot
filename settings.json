@@ -1,22 +1,22 @@
 {
     "token": "",
     "channel": "",
-    "gm": "NO",
-    "wm": "NO",
-    "sm": "NO",
-    "pm": "NO",
+    "gm": "YES",
+    "wm": "YES",
+    "sm": "YES",
+    "pm": "YES",
     "em": {
-        "text": "NO",
-        "owo": "NO"
+        "text": "YES",
+        "owo": "YES"
     },
     "webhook": {
         "link": null,
         "ping": null
     },
-    "daily": "NO",
+    "daily": "YES",
     "stop": "22222",
     "sell": {
-        "enable": "NO",
+        "enable": "YES",
         "types": "all"
     },
     "captcha": {
@@ -25,10 +25,5 @@
         "service": "2captcha",
         "enable_image": true,
         "model_path": "captcha_resolver/models/best.onnx"
-    },
-    "cpu": {
-        "max_percent": 90.0,
-        "check_interval": 1.0,
-        "max_wait_time": 111.0
     }
 }

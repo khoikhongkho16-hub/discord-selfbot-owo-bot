@@ -1,17 +1,14 @@
-"""
-Image Solver - Giải captcha ảnh bằng ONNX local
-"""
-
 import os
 import io
 import numpy as np
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import onnxruntime
 from typing import Optional, Dict, Any, Union
+import aiohttp
+import asyncio
 
 
 class ImageSolver:
-    """Giải captcha ảnh bằng ONNX AI model"""
     
     def __init__(self, model_path: str = 'best.onnx', bot=None):
         self.model_path = model_path
@@ -27,14 +24,11 @@ class ImageSolver:
         self._load_model()
     
     def _log(self, level: str, msg: str):
-        if self.bot:
-            self.bot.log(level, f"[ImageSolver] {msg}")
+        return
     
     def _load_model(self):
-        """Load ONNX model"""
         try:
             if not os.path.exists(self.model_path):
-                self._log("WARN", f"Model not found: {self.model_path}")
                 return
             
             self._engine = onnxruntime.InferenceSession(
@@ -43,13 +37,10 @@ class ImageSolver:
             )
             self._feed = self._engine.get_inputs()[0].name
             self._loaded = True
-            self._log("INFO", f"✅ Model loaded: {self.model_path}")
         except Exception as e:
-            self._log("ERROR", f"Failed to load model: {e}")
             self._loaded = False
     
     def _fit_square(self, frame: np.ndarray) -> np.ndarray:
-        """Resize ảnh về square với padding"""
         pic = Image.fromarray(frame)
         width, height = pic.size
         ratio = min(self.canvas_size / width, self.canvas_size / height)
@@ -63,46 +54,78 @@ class ImageSolver:
         return np.asarray(canvas)
     
     def _to_tensor(self, frame: np.ndarray) -> np.ndarray:
-        """Chuyển frame thành tensor cho ONNX"""
         tensor = self._fit_square(frame).astype(np.float32) / 255.0
         tensor = np.transpose(tensor, (2, 0, 1))
         return tensor[np.newaxis, ...]
     
+    def _load_image_safe(self, image_data: bytes) -> Optional[Image.Image]:
+        try:
+            img = Image.open(io.BytesIO(image_data))
+            return img
+        except UnidentifiedImageError:
+            import imghdr
+            img_type = imghdr.what(None, h=image_data)
+            
+            if img_type:
+                try:
+                    img = Image.open(io.BytesIO(image_data))
+                    return img
+                except:
+                    pass
+            
+            try:
+                import cv2
+                import numpy as np
+                nparr = np.frombuffer(image_data, np.uint8)
+                img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if img_cv is not None:
+                    img_cv_rgb = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
+                    img = Image.fromarray(img_cv_rgb)
+                    return img
+            except ImportError:
+                pass
+            except Exception as e:
+                pass
+            
+            return None
+        except Exception as e:
+            return None
+    
     def solve(self, image_data: Union[bytes, str, Image.Image], expected_length: int = 6) -> Optional[str]:
-        """
-        Giải captcha ảnh
-        
-        Args:
-            image_data: bytes, file path, hoặc PIL Image
-            expected_length: Số ký tự mong đợi
-        
-        Returns:
-            str: Captcha text hoặc None nếu thất bại
-        """
         try:
             if not self._loaded:
-                self._log("ERROR", "Model not loaded")
                 return None
             
-            # Load image
+            img = None
+            
             if isinstance(image_data, bytes):
-                img = Image.open(io.BytesIO(image_data))
+                img = self._load_image_safe(image_data)
+                if img is None:
+                    return None
+                    
             elif isinstance(image_data, str) and os.path.exists(image_data):
-                img = Image.open(image_data)
+                try:
+                    with open(image_data, 'rb') as f:
+                        data = f.read()
+                    img = self._load_image_safe(data)
+                    if img is None:
+                        return None
+                except Exception as e:
+                    return None
+                    
             elif isinstance(image_data, Image.Image):
                 img = image_data
             else:
-                self._log("ERROR", "Invalid image data")
                 return None
             
-            img = img.convert("RGB")
+            if img.mode != 'RGB':
+                img = img.convert("RGB")
+            
             frame = np.asarray(img)
             
-            # Inference
             tensor = self._to_tensor(frame)
             raw = self._engine.run(None, {self._feed: tensor})[0][0]
             
-            # Parse results
             found = []
             for row in raw:
                 ax, ay, bx, by, score, label = row
@@ -113,21 +136,43 @@ class ImageSolver:
             if not found:
                 return None
             
-            # Filter by expected length
             if expected_length and len(found) > expected_length:
                 found.sort(key=lambda item: item[1], reverse=True)
                 found = found[:expected_length]
             
-            # Sort by position và ghép text
             found.sort(key=lambda item: item[0])
             result = "".join(item[2] for item in found)
             
             return result if len(result) >= 3 else None
             
         except Exception as e:
-            self._log("ERROR", f"Solve failed: {e}")
+            return None
+    
+    async def solve_from_url(self, image_url: str, expected_length: int = 6) -> Optional[str]:
+        try:
+            if not self._loaded:
+                return None
+            
+            async with aiohttp.ClientSession() as session:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                }
+                async with session.get(image_url, headers=headers, timeout=15) as resp:
+                    if resp.status != 200:
+                        return None
+                    
+                    image_data = await resp.read()
+                    
+                    if not image_data or len(image_data) < 100:
+                        return None
+            
+            result = self.solve(image_data, expected_length)
+            return result
+            
+        except asyncio.TimeoutError:
+            return None
+        except Exception as e:
             return None
     
     def is_available(self) -> bool:
-        """Kiểm tra solver có sẵn sàng không"""
         return self._loaded
