@@ -85,8 +85,8 @@ class Data:
                 "webhook"
             ]  # Webhook's Data, Which Used To Send Warning If There's Verification ( {"link": str, "ping": int} )
             self.daily = data["daily"]  # Automatically Claim Daily (bool)
-            self.sell = data[
-                "sell"
+            self.sac = data[
+                "sac"
             ]  # Automatically Sell Animals ( {"enable": bool, "types": str})
             self.solve = data[
                 "solve"
@@ -590,14 +590,14 @@ class Client(discord.Client, Data, Gems, CaptchaSolver):
         await asyncio.sleep(randrange(4, 9))
 
     @tasks.loop(minutes=2)
-    async def sell_animal(self):
+    async def sac_animal(self):
         """
-        A Function (Method) Which Sells Animal Automatically
+        A Function (Method) Which Sacs Animal Automatically
         """
         await self.channel.trigger_typing()
         await asyncio.sleep(5)
-        await self.channel.send(f"owo sell {self.sell['types']}")
-        logger.info(f"Sold ({self.sell['types']}) Available Animal")
+        await self.channel.send(f"owo sac {self.sac['types']}")
+        logger.info(f"Sold ({self.sac['types']}) Available Animal")
 
     @tasks.loop(minutes=5)
     async def sleeper(self):
@@ -614,7 +614,7 @@ class Client(discord.Client, Data, Gems, CaptchaSolver):
             self.pray,
             self.exp,
             self.claim_daily,
-            self.sell_animal,
+            self.sac_animal,
             self.presence,
         ]
         interval_before = [task.seconds for task in tasks]
@@ -655,10 +655,10 @@ class Client(discord.Client, Data, Gems, CaptchaSolver):
             self.claim_daily.cancel()
         await self.wait_until_ready()
 
-    @sell_animal.before_loop
-    async def before_sell_animal(self):
-        if not self.sell["enable"]:
-            self.sell_animal.cancel()
+    @sac_animal.before_loop
+    async def before_sac_animal(self):
+        if not self.sac["enable"]:
+            self.sac_animal.cancel()
         await self.wait_until_ready()
 
     @sleeper.before_loop
